@@ -36,11 +36,27 @@ interface TimeLeft {
 
 type ThemeMode = 'tropical' | 'sunset' | 'ocean' | 'festive';
 
+// Helper to determine initial theme synchronously before first render
+const getInitialTheme = (): ThemeMode => {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const urlTheme = params.get('theme') as ThemeMode | null;
+    if (urlTheme && ['tropical', 'sunset', 'ocean', 'festive'].includes(urlTheme)) {
+      return urlTheme;
+    }
+    const savedTheme = localStorage.getItem('vacation_theme') as ThemeMode | null;
+    if (savedTheme && ['tropical', 'sunset', 'ocean', 'festive'].includes(savedTheme)) {
+      return savedTheme;
+    }
+  }
+  return 'tropical';
+};
+
 export default function App() {
   // 1. Initial State from URL params or localStorage or Default
   const [targetDateStr, setTargetDateStr] = useState<string>('');
   const [eventTitle, setEventTitle] = useState<string>('Férias!');
-  const [theme, setTheme] = useState<ThemeMode>('tropical');
+  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
@@ -152,24 +168,13 @@ export default function App() {
     frame();
   }, []);
 
-  // Parse URL search parameters on mount
+  // Parse URL search parameters on mount for target date & title
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const urlTarget = params.get('target') || params.get('datetime');
     const urlDate = params.get('date');
     const urlTime = params.get('time') || '18:00';
     const urlTitle = params.get('title') || params.get('name');
-    const urlTheme = params.get('theme') as ThemeMode | null;
-
-    // Theme precedence: URL parameter > localStorage > default ('tropical')
-    if (urlTheme && ['tropical', 'sunset', 'ocean', 'festive'].includes(urlTheme)) {
-      setTheme(urlTheme);
-    } else {
-      const savedTheme = localStorage.getItem('vacation_theme') as ThemeMode | null;
-      if (savedTheme && ['tropical', 'sunset', 'ocean', 'festive'].includes(savedTheme)) {
-        setTheme(savedTheme);
-      }
-    }
 
     let finalTargetISO = '';
 
@@ -212,12 +217,12 @@ export default function App() {
     }
   }, []);
 
-  // Update root html attribute and URL search params when theme changes
+  // Synchronize theme with DOM attribute, localStorage and URL parameter
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('vacation_theme', theme);
 
-    // Sync theme parameter in browser URL address bar
+    // Keep URL parameter in sync when user explicitly changes theme
     const url = new URL(window.location.href);
     if (url.searchParams.get('theme') !== theme) {
       url.searchParams.set('theme', theme);
