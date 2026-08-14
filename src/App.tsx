@@ -161,8 +161,14 @@ export default function App() {
     const urlTitle = params.get('title') || params.get('name');
     const urlTheme = params.get('theme') as ThemeMode | null;
 
+    // Theme precedence: URL parameter > localStorage > default ('tropical')
     if (urlTheme && ['tropical', 'sunset', 'ocean', 'festive'].includes(urlTheme)) {
       setTheme(urlTheme);
+    } else {
+      const savedTheme = localStorage.getItem('vacation_theme') as ThemeMode | null;
+      if (savedTheme && ['tropical', 'sunset', 'ocean', 'festive'].includes(savedTheme)) {
+        setTheme(savedTheme);
+      }
     }
 
     let finalTargetISO = '';
@@ -187,9 +193,6 @@ export default function App() {
     } else {
       const savedTarget = localStorage.getItem('vacation_target_date');
       const savedTitle = localStorage.getItem('vacation_event_title');
-      const savedTheme = localStorage.getItem('vacation_theme') as ThemeMode | null;
-
-      if (savedTheme) setTheme(savedTheme);
 
       if (savedTarget) {
         const parsed = new Date(savedTarget);
@@ -209,10 +212,17 @@ export default function App() {
     }
   }, []);
 
-  // Update root html attribute for theme
+  // Update root html attribute and URL search params when theme changes
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('vacation_theme', theme);
+
+    // Sync theme parameter in browser URL address bar
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('theme') !== theme) {
+      url.searchParams.set('theme', theme);
+      window.history.replaceState({}, '', url.toString());
+    }
   }, [theme]);
 
   // Utility to get next Friday 18:00
