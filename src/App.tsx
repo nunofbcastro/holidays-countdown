@@ -18,7 +18,10 @@ import {
   Copy,
   Zap,
   Play,
-  Timer
+  Timer,
+  Tv,
+  Maximize,
+  Minimize
 } from 'lucide-react';
 
 interface TimeLeft {
@@ -52,15 +55,59 @@ const getInitialTheme = (): ThemeMode => {
   return 'tropical';
 };
 
+// Helper to determine initial TV mode synchronously
+const getInitialTvMode = (): boolean => {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('tv') === 'true') return true;
+    if (params.get('tv') === 'false') return false;
+    const saved = localStorage.getItem('vacation_tv_mode');
+    if (saved !== null) return saved === 'true';
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes('tv') || ua.includes('tizen') || ua.includes('webos') || ua.includes('googletv') || ua.includes('androidtv') || ua.includes('hbbtv')) {
+      return true;
+    }
+  }
+  return false;
+};
+
 export default function App() {
   // 1. Initial State from URL params or localStorage or Default
   const [targetDateStr, setTargetDateStr] = useState<string>('');
   const [eventTitle, setEventTitle] = useState<string>('Férias!');
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
+  const [isTvMode, setIsTvMode] = useState<boolean>(getInitialTvMode);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [hasCelebrated, setHasCelebrated] = useState<boolean>(false);
+
+  // URL Flags for TV & Kiosk Customization
+  const showActions = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('actions') === 'true') return true;
+      if (params.get('actions') === 'false') return false;
+    }
+    return !isTvMode; // Automatically hide action buttons in TV mode
+  }, [isTvMode]);
+
+  const showHeaderControls = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('controls') === 'false') return false;
+    }
+    return true;
+  }, []);
+
+  const showDetails = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('details') === 'false') return false;
+    }
+    return true;
+  }, []);
   
   // Track speech spoken seconds to prevent duplicate spoken calls
   const lastSpokenSecRef = useRef<number | null>(null);
@@ -229,6 +276,70 @@ export default function App() {
       window.history.replaceState({}, '', url.toString());
     }
   }, [theme]);
+
+  // Synchronize TV mode attribute with DOM and localStorage
+  useEffect(() => {
+    if (isTvMode) {
+      document.documentElement.setAttribute('data-tv-mode', 'true');
+    } else {
+      document.documentElement.removeAttribute('data-tv-mode');
+    }
+  }, [isTvMode]);
+
+  // Track Fullscreen status
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, []);
+
+  const toggleTvMode = useCallback(() => {
+    setIsTvMode(prev => {
+      const next = !prev;
+      localStorage.setItem('vacation_tv_mode', String(next));
+      const url = new URL(window.location.href);
+      if (next) {
+        url.searchParams.set('tv', 'true');
+      } else {
+        url.searchParams.delete('tv');
+      }
+      window.history.replaceState({}, '', url.toString());
+      showToast(next ? 'Modo TV ativado 📺' : 'Modo Padrão ativado 💻');
+      return next;
+    });
+  }, []);
+
+  // Remote Control / Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeElement = document.activeElement;
+      if (activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeElement.tagName)) {
+        return;
+      }
+      const key = e.key.toLowerCase();
+      if (key === 't') {
+        toggleTvMode();
+      } else if (key === 'f') {
+        toggleFullscreen();
+      } else if (key === 'm') {
+        setSoundEnabled(prev => !prev);
+      } else if (key === 'c') {
+        triggerConfetti();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleTvMode, toggleFullscreen, triggerConfetti]);
 
   // Utility to get next Friday 18:00
   function getNextFriday(): Date {
@@ -472,60 +583,83 @@ export default function App() {
 
       <div className="app-container">
         {/* Navigation Bar */}
-        <header className="top-nav">
-          <div className="brand-logo">
-            <span className="brand-icon">🏖️</span>
-            <span>Férias Countdown</span>
-          </div>
-
-          <div className="header-actions">
-            {/* Theme switcher */}
-            <div className="theme-pill-group">
-              <button 
-                type="button" 
-                className={`theme-btn ${theme === 'tropical' ? 'active' : ''}`}
-                onClick={() => setTheme('tropical')}
-                title="Tema Praia Tropical 🌴"
-              >
-                <Sun size={16} />
-              </button>
-              <button 
-                type="button" 
-                className={`theme-btn ${theme === 'sunset' ? 'active' : ''}`}
-                onClick={() => setTheme('sunset')}
-                title="Tema Pôr do Sol 🌅"
-              >
-                <Sunset size={16} />
-              </button>
-              <button 
-                type="button" 
-                className={`theme-btn ${theme === 'ocean' ? 'active' : ''}`}
-                onClick={() => setTheme('ocean')}
-                title="Tema Azul Oceano 🌊"
-              >
-                <Waves size={16} />
-              </button>
-              <button 
-                type="button" 
-                className={`theme-btn ${theme === 'festive' ? 'active' : ''}`}
-                onClick={() => setTheme('festive')}
-                title="Tema Neón Festivo ⚡"
-              >
-                <PartyPopper size={16} />
-              </button>
+        {showHeaderControls && (
+          <header className="top-nav">
+            <div className="brand-logo">
+              <span className="brand-icon">🏖️</span>
+              <span>Férias Countdown</span>
             </div>
 
-            {/* Sound toggle */}
-            <button
-              type="button"
-              className="theme-btn active"
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              title={soundEnabled ? 'Som e Voz ativados' : 'Som e Voz desativados'}
-            >
-              {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-            </button>
-          </div>
-        </header>
+            <div className="header-actions">
+              {/* Theme switcher */}
+              <div className="theme-pill-group">
+                <button 
+                  type="button" 
+                  className={`theme-btn ${theme === 'tropical' ? 'active' : ''}`}
+                  onClick={() => setTheme('tropical')}
+                  title="Tema Praia Tropical 🌴"
+                >
+                  <Sun size={16} />
+                </button>
+                <button 
+                  type="button" 
+                  className={`theme-btn ${theme === 'sunset' ? 'active' : ''}`}
+                  onClick={() => setTheme('sunset')}
+                  title="Tema Pôr do Sol 🌅"
+                >
+                  <Sunset size={16} />
+                </button>
+                <button 
+                  type="button" 
+                  className={`theme-btn ${theme === 'ocean' ? 'active' : ''}`}
+                  onClick={() => setTheme('ocean')}
+                  title="Tema Azul Oceano 🌊"
+                >
+                  <Waves size={16} />
+                </button>
+                <button 
+                  type="button" 
+                  className={`theme-btn ${theme === 'festive' ? 'active' : ''}`}
+                  onClick={() => setTheme('festive')}
+                  title="Tema Neón Festivo ⚡"
+                >
+                  <PartyPopper size={16} />
+                </button>
+              </div>
+
+              {/* TV Mode toggle */}
+              <button
+                type="button"
+                className={`theme-btn ${isTvMode ? 'active tv-active' : ''}`}
+                onClick={toggleTvMode}
+                title={isTvMode ? 'Sair do Modo TV (Tecla T)' : 'Ativar Modo TV para Ecrã Grande (Tecla T)'}
+              >
+                <Tv size={16} />
+                <span className="tv-btn-text">{isTvMode ? 'Modo TV' : 'TV'}</span>
+              </button>
+
+              {/* Fullscreen toggle */}
+              <button
+                type="button"
+                className="theme-btn active"
+                onClick={toggleFullscreen}
+                title={isFullscreen ? 'Sair de Ecrã Cheio (Tecla F)' : 'Ecrã Cheio (Tecla F)'}
+              >
+                {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+              </button>
+
+              {/* Sound toggle */}
+              <button
+                type="button"
+                className="theme-btn active"
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                title={soundEnabled ? 'Som e Voz ativados (Tecla M)' : 'Som e Voz desativados (Tecla M)'}
+              >
+                {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+              </button>
+            </div>
+          </header>
+        )}
 
         {/* Main Card View */}
         <main className="glass-card">
@@ -694,61 +828,71 @@ export default function App() {
               </div>
 
               {/* Extra Productivity & Time Breakdown */}
-              <div className="details-bar">
-                <div className="detail-item">
-                  <div className="detail-icon">
-                    <Briefcase size={20} />
+              {showDetails && (
+                <div className="details-bar">
+                  <div className="detail-item">
+                    <div className="detail-icon">
+                      <Briefcase size={20} />
+                    </div>
+                    <div className="detail-info">
+                      <div className="detail-value">{timeLeft.workDays} Dias Úteis</div>
+                      <div className="detail-desc">Dias de trabalho restantes</div>
+                    </div>
                   </div>
-                  <div className="detail-info">
-                    <div className="detail-value">{timeLeft.workDays} Dias Úteis</div>
-                    <div className="detail-desc">Dias de trabalho restantes</div>
+
+                  <div className="detail-item">
+                    <div className="detail-icon">
+                      <Clock size={20} />
+                    </div>
+                    <div className="detail-info">
+                      <div className="detail-value">{timeLeft.workHours} Horas</div>
+                      <div className="detail-desc">Horas aprox. de escritório (8h/dia)</div>
+                    </div>
+                  </div>
+
+                  <div className="detail-item">
+                    <div className="detail-icon">
+                      <Sparkles size={20} />
+                    </div>
+                    <div className="detail-info">
+                      <div className="detail-value">{timeLeft.totalHours.toLocaleString('pt-PT')} Horas Totais</div>
+                      <div className="detail-desc">Tempo total continuo restante</div>
+                    </div>
                   </div>
                 </div>
+              )}
 
-                <div className="detail-item">
-                  <div className="detail-icon">
-                    <Clock size={20} />
-                  </div>
-                  <div className="detail-info">
-                    <div className="detail-value">{timeLeft.workHours} Horas</div>
-                    <div className="detail-desc">Horas aprox. de escritório (8h/dia)</div>
-                  </div>
+              {/* Action Buttons (Hidden in TV mode or when actions=false) */}
+              {showActions && (
+                <div className="countdown-actions">
+                  <button type="button" className="btn-accent" onClick={handleCopyLink}>
+                    <Copy size={18} /> Copiar Link com Parâmetros
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={handleShareWhatsApp}>
+                    <MessageCircle size={18} /> Partilhar no WhatsApp
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={handleTest5SecondCountdown}>
+                    <Timer size={18} /> Testar 5s + Música 🎵
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={() => setIsEditing(true)}>
+                    <Edit3 size={18} /> Alterar Data / Título
+                  </button>
                 </div>
-
-                <div className="detail-item">
-                  <div className="detail-icon">
-                    <Sparkles size={20} />
-                  </div>
-                  <div className="detail-info">
-                    <div className="detail-value">{timeLeft.totalHours.toLocaleString('pt-PT')} Horas Totais</div>
-                    <div className="detail-desc">Tempo total continuo restante</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="countdown-actions">
-                <button type="button" className="btn-accent" onClick={handleCopyLink}>
-                  <Copy size={18} /> Copiar Link com Parâmetros
-                </button>
-                <button type="button" className="btn-secondary" onClick={handleShareWhatsApp}>
-                  <MessageCircle size={18} /> Partilhar no WhatsApp
-                </button>
-                <button type="button" className="btn-secondary" onClick={handleTest5SecondCountdown}>
-                  <Timer size={18} /> Testar 5s + Música 🎵
-                </button>
-                <button type="button" className="btn-secondary" onClick={() => setIsEditing(true)}>
-                  <Edit3 size={18} /> Alterar Data / Título
-                </button>
-              </div>
+              )}
             </div>
           )}
         </main>
 
         <footer className="footer-text">
-          <p>
-            Dica: Pode passar parâmetros no URL como <code>?target=2026-08-20T18:00&title=Algarve</code> para abrir a contagem diretamente!
-          </p>
+          {isTvMode ? (
+            <p>
+              📺 <strong>Modo TV Ativo</strong> • Teclas do Comando: <code>[T]</code> Alternar TV • <code>[F]</code> Ecrã Cheio • <code>[M]</code> Som • <code>[C]</code> Confetis
+            </p>
+          ) : (
+            <p>
+              Dica: Ative o <strong>Modo TV 📺</strong> para ecrãs grandes ou passe <code>?tv=true</code> no URL para abrir diretamente na TV!
+            </p>
+          )}
         </footer>
       </div>
 
