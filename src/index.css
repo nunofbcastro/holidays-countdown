@@ -547,7 +547,55 @@ body {
   box-shadow: 0 8px 20px rgba(0,0,0,0.3);
 }
 
-/* Finished / Celebration View */
+/* 5-Second New Year Countdown Fullscreen Overlay */
+.countdown-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.3s ease;
+}
+
+.countdown-overlay-number {
+  font-family: var(--font-heading);
+  font-size: 16rem;
+  font-weight: 900;
+  line-height: 1;
+  background: linear-gradient(135deg, #00f2fe 0%, #ff007f 50%, #ffe066 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: zoomPulse 0.9s cubic-bezier(0.175, 0.885, 0.32, 1.275) infinite;
+  text-shadow: 0 0 80px rgba(0, 242, 254, 0.6);
+}
+
+@keyframes zoomPulse {
+  0% { transform: scale(0.4); opacity: 0.2; }
+  50% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.countdown-overlay-text {
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: #fff;
+  margin-top: 1rem;
+  animation: pulseText 1s infinite alternate;
+}
+
+@keyframes pulseText {
+  0% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+/* Finished / Celebration View with YouTube Player */
 .finished-container {
   text-align: center;
   padding: 2rem 1rem;
@@ -578,6 +626,24 @@ body {
   font-size: 1.3rem;
   color: rgba(255, 255, 255, 0.9);
   margin-bottom: 2rem;
+}
+
+.youtube-player-container {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  margin: 1.5rem auto 2rem;
+  aspect-ratio: 16 / 9;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5), 0 0 25px rgba(255, 0, 127, 0.4);
+  border: 2px solid var(--accent-color);
+}
+
+.youtube-player-container iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
 }
 
 /* Toast notification */

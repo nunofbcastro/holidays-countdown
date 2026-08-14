@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { 
   Palmtree, 
@@ -16,11 +16,14 @@ import {
   PartyPopper,
   MessageCircle,
   Copy,
-  Zap
+  Zap,
+  Play,
+  Timer
 } from 'lucide-react';
 
 interface TimeLeft {
   totalMs: number;
+  totalSeconds: number;
   days: number;
   hours: number;
   minutes: number;
@@ -42,6 +45,9 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [hasCelebrated, setHasCelebrated] = useState<boolean>(false);
+  
+  // Track speech spoken seconds to prevent duplicate spoken calls
+  const lastSpokenSecRef = useRef<number | null>(null);
 
   // Form Inputs
   const [inputDate, setInputDate] = useState<string>('');
@@ -54,8 +60,48 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  // Beep sound generator for 5, 4, 3, 2, 1 countdown
+  const playBeep = useCallback((freq = 880, duration = 0.15) => {
+    if (!soundEnabled) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + duration);
+    } catch {
+      // Audio context restricted by browser
+    }
+  }, [soundEnabled]);
+
+  // Voice synthesis countdown out loud: "5", "4", "3", "2", "1"
+  const speakCount = useCallback((text: string) => {
+    if (!soundEnabled) return;
+    if ('speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel(); // cancel previous utterance
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'pt-PT';
+        utterance.rate = 1.1;
+        utterance.pitch = 1.2;
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        // Speech synthesis fallback
+      }
+    }
+  }, [soundEnabled]);
+
   // Web Audio synth fanfare for finish state
   const playFanfare = useCallback(() => {
+    if (!soundEnabled) return;
     try {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return;
@@ -66,7 +112,7 @@ export default function App() {
         const gain = ctx.createGain();
         osc.type = 'sine';
         osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0.15, ctx.currentTime + idx * 0.12);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime + idx * 0.12);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.12 + 0.4);
         osc.connect(gain);
         gain.connect(ctx.destination);
@@ -74,29 +120,29 @@ export default function App() {
         osc.stop(ctx.currentTime + idx * 0.12 + 0.4);
       });
     } catch {
-      // Audio context policy blocked or not supported
+      // Audio context policy blocked
     }
-  }, []);
+  }, [soundEnabled]);
 
   // Fire confetti
   const triggerConfetti = useCallback(() => {
-    const duration = 4 * 1000;
+    const duration = 5 * 1000;
     const end = Date.now() + duration;
 
     const frame = () => {
       confetti({
-        particleCount: 5,
+        particleCount: 7,
         angle: 60,
-        spread: 55,
+        spread: 60,
         origin: { x: 0 },
-        colors: ['#00f2fe', '#4facfe', '#ff007f', '#ff9a9e']
+        colors: ['#00f2fe', '#ff007f', '#ffe066', '#4facfe']
       });
       confetti({
-        particleCount: 5,
+        particleCount: 7,
         angle: 120,
-        spread: 55,
+        spread: 60,
         origin: { x: 1 },
-        colors: ['#00f2fe', '#4facfe', '#ff007f', '#ff9a9e']
+        colors: ['#00f2fe', '#ff007f', '#ffe066', '#4facfe']
       });
 
       if (Date.now() < end) {
@@ -122,7 +168,6 @@ export default function App() {
     let finalTargetISO = '';
 
     if (urlTarget) {
-      // Check if direct ISO string
       const parsed = new Date(urlTarget);
       if (!isNaN(parsed.getTime())) {
         finalTargetISO = parsed.toISOString();
@@ -140,7 +185,6 @@ export default function App() {
       if (urlTitle) setEventTitle(urlTitle);
       setIsEditing(false);
     } else {
-      // Check localStorage fallback
       const savedTarget = localStorage.getItem('vacation_target_date');
       const savedTitle = localStorage.getItem('vacation_event_title');
       const savedTheme = localStorage.getItem('vacation_theme') as ThemeMode | null;
@@ -157,9 +201,7 @@ export default function App() {
         }
       }
 
-      // No URL params and no saved target -> Default to Setup Form
       setIsEditing(true);
-      // Pre-fill form defaults with Next Friday 18:00
       const nextFri = getNextFriday();
       setInputDate(formatDateForInput(nextFri));
       setInputTime('18:00');
@@ -177,7 +219,7 @@ export default function App() {
   function getNextFriday(): Date {
     const d = new Date();
     const day = d.getDay();
-    const diff = (5 - day + 7) % 7 || 7; // days until next Friday
+    const diff = (5 - day + 7) % 7 || 7;
     d.setDate(d.getDate() + diff);
     d.setHours(18, 0, 0, 0);
     return d;
@@ -190,7 +232,7 @@ export default function App() {
     return `${yyyy}-${mm}-${dd}`;
   }
 
-  // 2. Real-time ticker state
+  // Real-time ticker state
   const [now, setNow] = useState<Date>(new Date());
 
   useEffect(() => {
@@ -200,17 +242,17 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // 3. Calculation of Time Left & Work Days
+  // Calculation of Time Left & Work Days
   const timeLeft: TimeLeft = useMemo(() => {
     if (!targetDateStr) {
-      return { totalMs: 0, days: 0, hours: 0, minutes: 0, seconds: 0, totalHours: 0, workDays: 0, workHours: 0, isFinished: false };
+      return { totalMs: 0, totalSeconds: 0, days: 0, hours: 0, minutes: 0, seconds: 0, totalHours: 0, workDays: 0, workHours: 0, isFinished: false };
     }
 
     const targetDate = new Date(targetDateStr);
     const diffMs = targetDate.getTime() - now.getTime();
 
     if (diffMs <= 0) {
-      return { totalMs: 0, days: 0, hours: 0, minutes: 0, seconds: 0, totalHours: 0, workDays: 0, workHours: 0, isFinished: true };
+      return { totalMs: 0, totalSeconds: 0, days: 0, hours: 0, minutes: 0, seconds: 0, totalHours: 0, workDays: 0, workHours: 0, isFinished: true };
     }
 
     const totalSeconds = Math.floor(diffMs / 1000);
@@ -221,7 +263,6 @@ export default function App() {
 
     const totalHours = Math.floor(totalSeconds / 3600);
 
-    // Calculate business days (Monday to Friday)
     let workDaysCount = 0;
     const cur = new Date(now);
     cur.setHours(0, 0, 0, 0);
@@ -230,7 +271,7 @@ export default function App() {
 
     while (cur < end) {
       const dayOfWeek = cur.getDay();
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Not Sunday and Not Saturday
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
         workDaysCount++;
       }
       cur.setDate(cur.getDate() + 1);
@@ -240,6 +281,7 @@ export default function App() {
 
     return {
       totalMs: diffMs,
+      totalSeconds,
       days,
       hours,
       minutes,
@@ -251,16 +293,43 @@ export default function App() {
     };
   }, [targetDateStr, now]);
 
-  // Trigger celebration on reaching zero
+  // 5-Second Voice & Audio Countdown (5, 4, 3, 2, 1)
   useEffect(() => {
-    if (timeLeft.isFinished && targetDateStr && !hasCelebrated) {
-      setHasCelebrated(true);
-      triggerConfetti();
-      if (soundEnabled) {
-        playFanfare();
+    if (!targetDateStr || timeLeft.isFinished || isEditing) return;
+
+    // Check if in the final 5 seconds (5, 4, 3, 2, 1)
+    if (timeLeft.totalSeconds > 0 && timeLeft.totalSeconds <= 5) {
+      const sec = timeLeft.totalSeconds;
+      if (lastSpokenSecRef.current !== sec) {
+        lastSpokenSecRef.current = sec;
+        speakCount(String(sec));
+        playBeep(sec === 1 ? 1200 : 800, 0.2);
       }
     }
-  }, [timeLeft.isFinished, targetDateStr, hasCelebrated, triggerConfetti, playFanfare, soundEnabled]);
+  }, [timeLeft.totalSeconds, targetDateStr, timeLeft.isFinished, isEditing, speakCount, playBeep]);
+
+  // Trigger celebration on reaching zero
+  useEffect(() => {
+    if (timeLeft.isFinished && targetDateStr && !hasCelebrated && !isEditing) {
+      setHasCelebrated(true);
+      speakCount('Boas Férias!');
+      triggerConfetti();
+      playFanfare();
+    }
+  }, [timeLeft.isFinished, targetDateStr, hasCelebrated, isEditing, triggerConfetti, playFanfare, speakCount]);
+
+  // Test 5-Second Countdown Helper
+  const handleTest5SecondCountdown = () => {
+    const target = new Date(Date.now() + 6000); // 6 seconds from now
+    const isoStr = target.toISOString();
+
+    setTargetDateStr(isoStr);
+    setEventTitle('Férias de Teste 🎉');
+    setHasCelebrated(false);
+    setIsEditing(false);
+    lastSpokenSecRef.current = null;
+    showToast('Iniciando contagem de teste de 5 segundos! ⏱️');
+  };
 
   // Handle Form Submit
   const handleSaveCountdown = (e: React.FormEvent) => {
@@ -282,12 +351,11 @@ export default function App() {
     setEventTitle(finalTitle);
     setHasCelebrated(false);
     setIsEditing(false);
+    lastSpokenSecRef.current = null;
 
-    // Persist local storage
     localStorage.setItem('vacation_target_date', isoStr);
     localStorage.setItem('vacation_event_title', finalTitle);
 
-    // Update URL query params cleanly without reloading
     const url = new URL(window.location.href);
     url.searchParams.set('target', `${inputDate}T${inputTime}`);
     url.searchParams.set('title', finalTitle);
@@ -367,8 +435,19 @@ export default function App() {
     }).format(d);
   }, [targetDateStr]);
 
+  // Check if 5-second fullscreen overlay active
+  const is5SecondOverlay = !isEditing && !timeLeft.isFinished && timeLeft.totalSeconds > 0 && timeLeft.totalSeconds <= 5;
+
   return (
     <>
+      {/* 5-Second Countdown Fullscreen Overlay (Ano Novo style 5, 4, 3, 2, 1) */}
+      {is5SecondOverlay && (
+        <div className="countdown-overlay">
+          <div className="countdown-overlay-number">{timeLeft.totalSeconds}</div>
+          <div className="countdown-overlay-text">Prepara-te... As Férias Estão a Chegar! 🎉</div>
+        </div>
+      )}
+
       {/* Background Orbs */}
       <div className="bg-decorations">
         <div className="bg-orb bg-orb-1" />
@@ -426,7 +505,7 @@ export default function App() {
               type="button"
               className="theme-btn active"
               onClick={() => setSoundEnabled(!soundEnabled)}
-              title={soundEnabled ? 'Som ativado' : 'Som desativado'}
+              title={soundEnabled ? 'Som e Voz ativados' : 'Som e Voz desativados'}
             >
               {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
             </button>
@@ -506,11 +585,20 @@ export default function App() {
                 <Sparkles size={20} /> Iniciar Contagem Decrescente
               </button>
 
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                style={{ width: '100%', marginTop: '0.75rem', justifyContent: 'center' }}
+                onClick={handleTest5SecondCountdown}
+              >
+                <Timer size={18} /> 🧪 Testar Contagem de 5 Segundos + Música
+              </button>
+
               {targetDateStr && (
                 <button
                   type="button"
                   className="btn-secondary"
-                  style={{ width: '100%', marginTop: '1rem', justifyContent: 'center' }}
+                  style={{ width: '100%', marginTop: '0.5rem', justifyContent: 'center' }}
                   onClick={() => setIsEditing(false)}
                 >
                   Voltar à Contagem Atual
@@ -523,12 +611,32 @@ export default function App() {
               <div className="celebration-emoji">✈️🥳🍹🎉</div>
               <h1 className="finished-title">AS FÉRIAS CHEGARAM!</h1>
               <p className="finished-text">
-                Parabéns! O tempo de trabalho acabou. É hora de relaxar e aproveitar <b>{eventTitle}</b>!
+                Parabéns! O tempo de trabalho acabou. É hora de relaxar e celebrar <b>{eventTitle}</b>!
               </p>
+
+              {/* YouTube Celebration Music Embed */}
+              <div className="youtube-player-container">
+                <iframe
+                  src="https://www.youtube.com/embed/i2PzdZ61HD4?autoplay=1&enablejsapi=1"
+                  title="Kool & The Gang - Celebration"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+
               <div className="countdown-actions">
                 <button type="button" className="btn-accent" onClick={triggerConfetti}>
                   <PartyPopper size={18} /> Mais Confetis!
                 </button>
+                <a 
+                  href="https://www.youtube.com/watch?v=i2PzdZ61HD4" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="btn-secondary"
+                  style={{ textDecoration: 'none' }}
+                >
+                  <Play size={18} /> Abrir Música no YouTube 🎵
+                </a>
                 <button type="button" className="btn-secondary" onClick={() => setIsEditing(true)}>
                   <Edit3 size={18} /> Nova Contagem
                 </button>
@@ -610,6 +718,9 @@ export default function App() {
                 </button>
                 <button type="button" className="btn-secondary" onClick={handleShareWhatsApp}>
                   <MessageCircle size={18} /> Partilhar no WhatsApp
+                </button>
+                <button type="button" className="btn-secondary" onClick={handleTest5SecondCountdown}>
+                  <Timer size={18} /> Testar 5s + Música 🎵
                 </button>
                 <button type="button" className="btn-secondary" onClick={() => setIsEditing(true)}>
                   <Edit3 size={18} /> Alterar Data / Título
